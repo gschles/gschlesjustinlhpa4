@@ -8,7 +8,7 @@ from time import clock
 from collections import Counter
 from message_iterators import MessageIterator
 
-m = 2.0
+m = 100000.0
 
 """
 train_binomial() counts the number of documents each word 
@@ -36,6 +36,10 @@ def apply_binomial(C, V, prior, condprob, noprob, doc):
     s = set([])
     for term in doc.body:
       if term in V:
+        s.add(term)
+        scores[c] += math.log(condprob[c][term]) - math.log(1-condprob[c][term])
+    for term in doc.subject:
+      if not (term in s):
         s.add(term)
         scores[c] += math.log(condprob[c][term]) - math.log(1-condprob[c][term])
   n = 0
@@ -67,18 +71,26 @@ def binomial(mi):
   print('got test docs', file=sys.stderr)
   cor = 0
   for i, doc in enumerate(test_docs):
+  #for doc in mi:
     (probs, n) = apply_binomial(mi.numgroups, V, prior, condprob, noprob, doc)
     cor += n
-    output_probability(probs)
+    #output_probability(probs)
   print(float(cor)/400, file=sys.stderr)
+  #print(float(cor)/mi.tot_msgs, file=sys.stderr)
   
 def extract_vocab(mi):
   V = set([])
   class_counters = [Counter() for c in range(mi.numgroups)]
   for mf in mi:
+    s = set([])
     for word in mf.body:
       class_counters[mf.newsgroupnum][word] += 1
+      s.add(word)
       V.add(word)
+    for word in mf.subject:
+      if not (word in s):
+        s.add(word)
+        V.add(word)
   return V, class_counters
 
 def calc_chi2(mi, class_counts, c, term):

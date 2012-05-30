@@ -49,7 +49,7 @@ class MessageFeatures:
           counts[token] += 1
         else:
           stemmed = stemmer.stem(token, 0, len(token)-1)
-          if WORD_RE.match(stemmed) and len(stemmed) > MIN_WORD_LEN and \
+          if WORD_RE.match(stemmed) and len(stemmed) >= MIN_WORD_LEN and \
             stemmed not in stopwords:
             counts[stemmed] += 1
 

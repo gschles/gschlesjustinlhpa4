@@ -9,8 +9,8 @@ SUBJECT_TAG = "Subject: "
 
 MAX_TOKEN_LEN = 20
 MIN_WORD_LEN = 3;
-NUM_RE = re.compile(r"([0-9]+)")
-WORD_RE = re.compile(r"([a-zA-Z'\-]+)")
+NUM_RE = re.compile(r"^([0-9]+)$")
+WORD_RE = re.compile(r"^([a-zA-Z'\-]+)$")
 ALPHANUM_RE = re.compile(r"(\w+)")
 HYPERLINK_RE = re.compile(r"(http\:\/\/(\w+\.)+\w+)")
 EMAIL_RE = re.compile(r"([\w\-\.]+@[\w\-\.]+)")
@@ -51,6 +51,7 @@ class MessageFeatures:
           stemmed = stemmer.stem(token, 0, len(token)-1)
           if WORD_RE.match(stemmed) and len(stemmed) >= MIN_WORD_LEN and \
             stemmed not in stopwords:
+            #if WORD_RE.match(stemmed).group(0) == stemmed:
             counts[stemmed] += 1
 
 

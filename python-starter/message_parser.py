@@ -26,7 +26,7 @@ def parse_training_dirs(inp_dir, out_file):
   inp_dir = os.path.abspath(inp_dir)
   with open(out_file, 'wb') as outstream:
     writer = pickle.Pickler(outstream, pickle.HIGHEST_PROTOCOL)
-    training_dirs = os.listdir(inp_dir)
+    training_dirs = sorted(os.listdir(inp_dir))
     writer.dump(len(training_dirs))
     num_msgs = [0] * len(training_dirs)
     for group, train_dir in enumerate(training_dirs):
@@ -38,7 +38,7 @@ def parse_training_dirs(inp_dir, out_file):
 
 def parse_newsgroup(group_num, train_dir, writer):
   try:
-    msgs = os.listdir(train_dir)
+    msgs = sorted(os.listdir(train_dir))
     print("Parsing {0} with {1} messages".format(train_dir, len(msgs)) ,
       file=sys.stderr)
     for msg in msgs:

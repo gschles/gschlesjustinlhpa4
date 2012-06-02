@@ -7,11 +7,9 @@ from time import clock
 from collections import Counter
 from message_iterators import MessageIterator
 
+ALT_SMOOTHING = False
 
-
-
-
-m = 2.0
+m = 32000.0
 k = 10
 
 class IteratorInfo:
@@ -33,8 +31,10 @@ def train_binomial(ii, V, class_counters):
   for term in V:
     ovf = float(sum([class_counters[c][term] for c in range(ii.numgroups)]))/ii.tot_msgs
     for c in range(ii.numgroups):
-      condprob[c][term] = float(class_counters[c][term]+1)/float(ii.num_msgs[c]+2)
-      #condprob[c][term] = float(class_counters[c][term]+m*of)/float(mi.num_msgs[c]+m)
+      if ALT_SMOOTHING:
+        condprob[c][term] = float(class_counters[c][term]+m*ovf)/float(ii.num_msgs[c]+m)
+      else:
+        condprob[c][term] = float(class_counters[c][term]+1)/(ii.num_msgs[c]+2)
       noprob[c] += math.log(1-condprob[c][term])
   return prior, condprob, noprob
 """
@@ -48,11 +48,14 @@ def apply_binomial(C, V, prior, condprob, noprob, doc):
     for term in doc.body:
       if term in V:
         s.add(term)
-        scores[c] += math.log(condprob[c][term]) - math.log(1-condprob[c][term]) 
+        scores[c] += math.log(condprob[c][term]) - math.log(1-condprob[c][term])
+    for term in doc.subject:
+      if term in V and term not in s:
+        s.add(term)
+        scores[c] += math.log(condprob[c][term]) - math.log(1-condprob[c][term])
   n = 0         
   if scores.index(max(scores)) == doc.newsgroupnum:
     n = 1       
-  #print(str(doc.newsgroupnum)+' '+str(scores.index(max(scores))), file=sys.stderr)
   return scores, n
 
 def parse_first_20(ii):
@@ -62,7 +65,7 @@ def parse_first_20(ii):
   for mf in ii.messages:
     if group >= ii.numgroups:
       break
-if mf.newsgroupnum == group:
+    if mf.newsgroupnum == group:
       docs.append(mf)
       count += 1
     if count >= 20:
@@ -87,9 +90,16 @@ def extract_vocab(ii):
   V = set([])
   class_counters = [Counter() for c in range(ii.numgroups)]
   for mf in ii.messages:
+    s = set([])
     for word in mf.body:
       class_counters[mf.newsgroupnum][word] += 1
       V.add(word)
+      s.add(word)
+    for word in mf.subject:
+      if word not in s:
+        class_counters[mf.newsgroupnum][word] += 1
+        V.add(word)
+        s.add(word)
   return V, class_counters
 
 def calc_chi2(mi, class_counts, c, term):
@@ -126,7 +136,7 @@ def binomial_chi2(mi):
     cor += n
     output_probability(probs)
   print(float(cor)/400, file=sys.stderr)
-                                                                                                                                        129,1         30%
+
 """
 trains the multinomial model
 """
@@ -138,10 +148,14 @@ def train_multinomial(ii):
     for word, count in mf.body.items():
       class_counters[mf.newsgroupnum][word] += count
       V.add(word)
+    for word, count in mf.subject.items():
+      class_counters[mf.newsgroupnum][word] += count
+      V.add(word)
   prior = [float(ii.num_msgs[c])/ii.tot_msgs for c in range(ii.numgroups)] # class priors
   condprob = [{} for i in range(ii.numgroups)]
   for c in range(ii.numgroups):
     denom = sum([class_counters[c][t]+1 for t in class_counters[c]])
+    condprob[c][''] = 1.0/denom
     for term in V:
       condprob[c][term] = float(class_counters[c][term]+1)/denom
   return V, prior, condprob
@@ -156,7 +170,14 @@ def apply_multinomial(C, V, prior, condprob, doc):
     scores[c] = math.log(prior[c]) #class prior prob
     for term, count in doc.body.items():
         if term in condprob[c]:
-         scores[c] += count*math.log(condprob[c][term])
+          scores[c] += count*math.log(condprob[c][term])
+        else:
+          scores[c] += count*math.log(condprob[c][''])
+    for term, count in doc.subject.items():
+        if term in condprob[c]:
+          scores[c] += count*math.log(condprob[c][term])
+        else:
+          scores[c] += count*math.log(condprob[c][''])
   n = 0
   if scores.index(max(scores)) == doc.newsgroupnum:
     n = 1
@@ -168,8 +189,6 @@ def multinomial(mi):
   print('done training', file=sys.stderr)
   test_docs = parse_first_20(mi)
   print('got test docs', file=sys.stderr)
-  #for doc in test_docs:
-   # output_probability(apply_multinomial(mi.numgroups, V, prior, condprob, doc))
   cor = 0
   for doc in test_docs:
     (probs, n) = apply_multinomial(mi.numgroups, V, prior, condprob, doc)
@@ -225,9 +244,9 @@ def kfold(ii):
   multinom_tot_acc = 0
   kfold_message_iterators = split_main_iterator(ii)
   for j in range(k):
-      (train_message_iterator,test_message_iterator) = merge_kfold_message_iterators(kfold_message_iterators,j,ii.numgroups)
-      binom_tot_acc += kfold_binomial(train_message_iterator, test_message_iterator)
-      multinom_tot_acc += kfold_multinomial(train_message_iterator, test_message_iterator)
+    (train_message_iterator,test_message_iterator) = merge_kfold_message_iterators(kfold_message_iterators,j,ii.numgroups)
+    binom_tot_acc += kfold_binomial(train_message_iterator, test_message_iterator)
+    multinom_tot_acc += kfold_multinomial(train_message_iterator, test_message_iterator)
   print("binomial accuracy", binom_tot_acc/k)
   print("multinomial accuracy", multinom_tot_acc/k)
 
@@ -245,16 +264,20 @@ MODES = {
     'binomial-chi2': binomial_chi2,
     'multinomial': multinomial,
     'twcnb': twcnb,
-    'kfold' : kfold
+    'kfold' : kfold,
     # Add others here if you want
+    'binomial-alt': binomial
     }
 
 def main():
   start = clock()
+  global ALT_SMOOTHING
   if not len(sys.argv) == 3:
     print("Usage: python {0} <mode> <train>".format(__file__), file=sys.stderr)
     sys.exit(-1)
   mode = sys.argv[1]
+  if mode == 'binomial-alt':
+    ALT_SMOOTHING = True
   train = sys.argv[2]
 
   mi = MessageIterator(train)

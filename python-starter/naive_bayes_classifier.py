@@ -4,7 +4,7 @@ import sys, math, heapq
 
 from time import clock
 
-from collections import Counter
+from collections import Counter, defaultdict
 from message_iterators import MessageIterator
 
 ALT_SMOOTHING = False
@@ -184,20 +184,73 @@ def apply_multinomial(C, V, prior, condprob, doc):
   #print(str(doc.newsgroupnum)+' '+str(scores.index(max(scores))), file=sys.stderr)
   return scores, n
 
-def multinomial(mi):
-  (V, prior, condprob) = train_multinomial(mi)
+def multinomial(ii):
+  (V, prior, condprob) = train_multinomial(ii)
   print('done training', file=sys.stderr)
-  test_docs = parse_first_20(mi)
+  test_docs = parse_first_20(ii)
   print('got test docs', file=sys.stderr)
   cor = 0
   for doc in test_docs:
-    (probs, n) = apply_multinomial(mi.numgroups, V, prior, condprob, doc)
+    (probs, n) = apply_multinomial(ii.numgroups, V, prior, condprob, doc)
     cor += n
     output_probability(probs)
   print(float(cor)/400, file=sys.stderr)
 
-def twcnb(mi):
-  pass
+
+def apply_twcnb(C, prior, comp_condprob, class_weights, doc):
+  scores = [0 for c in range(C)]
+  for c in range(C):
+    for term, count in doc.body.items():
+        if term in comp_condprob[c]:
+                weight = math.log(comp_condprob[c][term])
+                #Modifying weight frequencies to implement TWCNB
+                frequency = math.log(1 +count)
+                scores[c] -= frequency * weight
+    scores[c] /= class_weights[c]
+    #scores[c] += math.log(prior[c]) #class prior prob
+  n = 0
+  if scores.index(max(scores)) == doc.newsgroupnum:
+   n = 1
+  return scores, n
+
+
+def train_twcnb(ii):
+   V = set([])
+   N = ii.tot_msgs
+   class_counters = [Counter() for i in range(ii.numgroups)]
+   num_words = 0;
+   word_counts = Counter()
+   word_messages_count = Counter()
+   class_weights = Counter()
+   for mf in ii.messages:
+     for word, count in mf.body.items():
+       class_counters[mf.newsgroupnum][word] += count
+       word_messages_count[word] += 1
+       num_words +=count
+       word_counts[word] += count
+       V.add(word)
+   prior = [float(ii.num_msgs[c])/ii.tot_msgs for c in range(ii.numgroups)] # class priors
+   comp_condprob = [{} for i in range(ii.numgroups)]
+   for c in range(ii.numgroups):
+     denom = num_words - sum([class_counters[c][t]+1 for t in class_counters[c]])
+     #implement CNB using word_counts, class weights aids in WCNB
+     for term in V:
+       comp_condprob[c][term] = float((word_counts[term] - class_counters[c][term])+1)/denom
+       class_weights[c] += math.fabs(math.log(comp_condprob[c][term]))
+   return prior, comp_condprob, class_weights
+
+def twcnb(ii):
+  (prior, comp_condprob,class_weights) = train_twcnb(ii)
+  print('done training', file=sys.stderr)
+  test_docs = parse_first_20(ii)
+  print('got test docs', file=sys.stderr)
+  cor = 0
+  for doc in test_docs:
+    (probs, n) = apply_twcnb(ii.numgroups, prior, comp_condprob, class_weights, doc)
+    cor += n
+    #output_probability(probs)
+  print(float(cor)/400, file=sys.stderr)
+
 
 
 def split_main_iterator(ii):
